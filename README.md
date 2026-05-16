@@ -24,7 +24,7 @@ Hoy el repositorio ya incluye:
 ## Arquitectura del workspace
 
 ```text
-Visishop-backend/
+Visishop/
 |-- README.md
 |-- Visishop/                 # API Flask
 |   |-- app.py
