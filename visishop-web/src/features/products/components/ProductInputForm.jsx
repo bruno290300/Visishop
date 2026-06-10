@@ -1,7 +1,7 @@
 import { useState } from "react";
 import VoiceInputButton from "./VoiceInputButton";
 
-function ProductInputForm({ onAddProduct }) {
+function ProductInputForm({ onAddProduct, isVoiceOnboardingActive = false }) {
   const [name, setName] = useState("");
   const [message, setMessage] = useState("");
 
@@ -14,8 +14,14 @@ function ProductInputForm({ onAddProduct }) {
       return;
     }
 
-    onAddProduct(nextName);
+    const createdProduct = onAddProduct(nextName);
     setName("");
+
+    if (createdProduct?.availabilityStatus === "unavailable") {
+      setMessage("Producto sin disponibilidad. Se sugirieron alternativas.");
+      return;
+    }
+
     setMessage("Producto agregado correctamente.");
   }
 
@@ -42,7 +48,16 @@ function ProductInputForm({ onAddProduct }) {
         </button>
       </form>
 
-      <VoiceInputButton onTranscript={handleVoiceTranscript} />
+      <div
+        className={[
+          "rounded-3xl transition",
+          isVoiceOnboardingActive
+            ? "ring-2 ring-cyan-200/80 ring-offset-2 ring-offset-slate-950"
+            : "",
+        ].join(" ")}
+      >
+        <VoiceInputButton onTranscript={handleVoiceTranscript} />
+      </div>
 
       {message && (
         <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">

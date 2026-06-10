@@ -12,6 +12,8 @@ import { speakFeedback } from "../features/accessibility/services/speechFeedback
 import {
   findBestCatalogMatch,
   findCatalogProductByBarcode,
+  getCatalogProductAvailability,
+  getProductRecommendations,
 } from "../features/products/services/productCatalog";
 
 const ShoppingListContext = createContext(null);
@@ -24,6 +26,27 @@ const initialState = {
   products: seedProducts,
 };
 
+function buildRecommendationData(productOrName) {
+  return getProductRecommendations(productOrName, { limit: 3 });
+}
+
+function buildProductData({ name, barcode, status = "pending", catalogProduct = null }) {
+  const availability = getCatalogProductAvailability(catalogProduct || name);
+  const sourceProduct = availability.product || catalogProduct || name;
+
+  return {
+    name,
+    status,
+    barcode,
+    availabilityStatus: availability.status,
+    category: sourceProduct?.category || "",
+    type: sourceProduct?.type || "",
+    brand: sourceProduct?.brand || "",
+    price: sourceProduct?.price ?? null,
+    recommendations: buildRecommendationData(sourceProduct),
+  };
+}
+
 function sanitizeProducts(rawProducts) {
   if (!Array.isArray(rawProducts)) return [];
 
@@ -33,12 +56,12 @@ function sanitizeProducts(rawProducts) {
       const name = item.name.trim();
       const status = item.status === "verified" ? "verified" : "pending";
       const barcode = String(item.barcode || generateProductBarcode(name)).trim();
+      const catalogProduct = findCatalogProductByBarcode(barcode) || findBestCatalogMatch(name);
+      const productData = buildProductData({ name, barcode, status, catalogProduct });
 
       return {
         id: item.id || `prd-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
-        name,
-        status,
-        barcode,
+        ...productData,
         isScanning: false,
         scanFeedback: null,
       };
@@ -86,9 +109,7 @@ function shoppingListReducer(state, action) {
     case "ADD_PRODUCT": {
       const newProduct = {
         id: `prd-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
-        name: action.payload.name,
-        status: "pending",
-        barcode: action.payload.barcode,
+        ...action.payload.product,
         isScanning: false,
         scanFeedback: null,
       };
@@ -98,6 +119,26 @@ function shoppingListReducer(state, action) {
         products: [newProduct, ...state.products],
       };
     }
+    case "REPLACE_PRODUCT":
+      return {
+        ...state,
+        products: state.products.map((product) =>
+          product.id === action.payload.id
+            ? {
+                ...product,
+                ...action.payload.product,
+                status: "pending",
+                isScanning: false,
+                scanFeedback: {
+                  type: "success",
+                  scannedCode: action.payload.product.barcode,
+                  expectedCode: action.payload.product.barcode,
+                  message: "Producto reemplazado por una alternativa recomendada.",
+                },
+              }
+            : product
+        ),
+      };
     case "SCAN_START":
       return {
         ...state,
@@ -135,6 +176,28 @@ function shoppingListReducer(state, action) {
             : product
         ),
       };
+    case "REMOVE_PRODUCT":
+      return {
+        ...state,
+        products: state.products.filter((product) => product.id !== action.payload.id),
+      };
+    case "RESTORE_PRODUCT": {
+      if (state.products.some((product) => product.id === action.payload.product.id)) {
+        return state;
+      }
+
+      const products = [...state.products];
+      const insertIndex = Math.min(
+        Math.max(action.payload.index ?? 0, 0),
+        products.length
+      );
+      products.splice(insertIndex, 0, action.payload.product);
+
+      return {
+        ...state,
+        products,
+      };
+    }
     case "CLEAR_PRODUCTS":
       return {
         ...state,
@@ -153,22 +216,35 @@ export function ShoppingListProvider({ children }) {
     const requestedName = String(
       isObjectPayload ? payload.name : payload
     ).trim();
-    const catalogMatch = isObjectPayload ? null : findBestCatalogMatch(requestedName);
+    const catalogMatch = isObjectPayload
+      ? findCatalogProductByBarcode(payload.barcode) || findBestCatalogMatch(requestedName)
+      : findBestCatalogMatch(requestedName);
     const normalizedName = catalogMatch?.name || requestedName;
     const normalizedBarcode = String(
       isObjectPayload
-        ? payload.barcode
+        ? payload.barcode || catalogMatch?.barcode || generateProductBarcode(normalizedName)
         : catalogMatch?.barcode || generateProductBarcode(normalizedName)
     ).trim();
     if (!normalizedName || !normalizedBarcode) return;
 
+    const product = buildProductData({
+      name: normalizedName,
+      barcode: normalizedBarcode,
+      catalogProduct: catalogMatch,
+    });
+
     dispatch({
       type: "ADD_PRODUCT",
       payload: {
-        name: normalizedName,
-        barcode: normalizedBarcode,
+        product,
       },
     });
+
+    if (product.availabilityStatus === "unavailable") {
+      speakFeedback(`No se encontro disponibilidad para ${product.name}. Se sugieren productos similares.`);
+    }
+
+    return product;
   }
 
   function normalizeCode(rawCode) {
@@ -222,6 +298,50 @@ export function ShoppingListProvider({ children }) {
     dispatch({ type: "CLEAR_PRODUCTS" });
   }
 
+  function removeProduct(id) {
+    dispatch({ type: "REMOVE_PRODUCT", payload: { id } });
+  }
+
+  function restoreProduct(product, index = 0) {
+    if (!product?.id) return;
+
+    dispatch({
+      type: "RESTORE_PRODUCT",
+      payload: {
+        product: {
+          ...product,
+          isScanning: false,
+        },
+        index,
+      },
+    });
+  }
+
+  function replaceProductWithRecommendation(id, recommendation) {
+    const name = String(recommendation?.name || "").trim();
+    const barcode = String(recommendation?.barcode || "").trim();
+    if (!name || !barcode) return;
+
+    const catalogProduct = findCatalogProductByBarcode(barcode) || findBestCatalogMatch(name);
+    const product = buildProductData({
+      name,
+      barcode,
+      catalogProduct,
+    });
+
+    speakFeedback(`Producto reemplazado por ${name}.`);
+
+    dispatch({
+      type: "REPLACE_PRODUCT",
+      payload: {
+        id,
+        product,
+      },
+    });
+
+    return product;
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -230,6 +350,7 @@ export function ShoppingListProvider({ children }) {
       name: product.name,
       status: product.status,
       barcode: product.barcode,
+      availabilityStatus: product.availabilityStatus,
     }));
 
     window.localStorage.setItem(
@@ -250,6 +371,9 @@ export function ShoppingListProvider({ children }) {
       cancelProductScan,
       verifyScannedProduct,
       clearProducts,
+      removeProduct,
+      restoreProduct,
+      replaceProductWithRecommendation,
     }),
     [state.products]
   );

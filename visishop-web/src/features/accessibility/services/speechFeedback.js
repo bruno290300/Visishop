@@ -18,3 +18,12 @@ export function speakFeedback(message) {
 
   return true;
 }
+
+export function stopFeedback() {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+    return false;
+  }
+
+  window.speechSynthesis.cancel();
+  return true;
+}
