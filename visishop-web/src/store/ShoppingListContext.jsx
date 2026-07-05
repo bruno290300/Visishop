@@ -14,6 +14,8 @@ import {
   findCatalogProductByBarcode,
   getCatalogProductAvailability,
   getProductRecommendations,
+  matchesCatalogProductInput,
+  MIN_PRODUCT_ENTRY_MATCH_SCORE,
 } from "../features/products/services/productCatalog";
 
 const ShoppingListContext = createContext(null);
@@ -30,8 +32,24 @@ function buildRecommendationData(productOrName) {
   return getProductRecommendations(productOrName, { limit: 3 });
 }
 
+function findProductEntryCatalogMatch(name, barcode = "") {
+  return (
+    findCatalogProductByBarcode(barcode) ||
+    findBestCatalogMatch(name, {
+      minimumScore: MIN_PRODUCT_ENTRY_MATCH_SCORE,
+      useDefaultTieBreaker: false,
+    })
+  );
+}
+
 function buildProductData({ name, barcode, status = "pending", catalogProduct = null }) {
-  const availability = getCatalogProductAvailability(catalogProduct || name);
+  const availability = catalogProduct
+    ? getCatalogProductAvailability(catalogProduct)
+    : {
+        product: null,
+        status: "unknown",
+        isAvailable: true,
+      };
   const sourceProduct = availability.product || catalogProduct || name;
 
   return {
@@ -55,8 +73,11 @@ function sanitizeProducts(rawProducts) {
     .map((item) => {
       const name = item.name.trim();
       const status = item.status === "verified" ? "verified" : "pending";
-      const barcode = String(item.barcode || generateProductBarcode(name)).trim();
-      const catalogProduct = findCatalogProductByBarcode(barcode) || findBestCatalogMatch(name);
+      const storedBarcode = String(item.barcode || "").trim();
+      const catalogProduct = findProductEntryCatalogMatch(name, storedBarcode);
+      const barcode = String(
+        catalogProduct?.barcode || storedBarcode || generateProductBarcode(name)
+      ).trim();
       const productData = buildProductData({ name, barcode, status, catalogProduct });
 
       return {
@@ -155,6 +176,7 @@ function shoppingListReducer(state, action) {
           product.id === action.payload.id
             ? {
                 ...product,
+                ...(action.payload.product || {}),
                 status: action.payload.isMatch ? "verified" : product.status,
                 isScanning: false,
                 scanFeedback: {
@@ -216,10 +238,11 @@ export function ShoppingListProvider({ children }) {
     const requestedName = String(
       isObjectPayload ? payload.name : payload
     ).trim();
-    const catalogMatch = isObjectPayload
-      ? findCatalogProductByBarcode(payload.barcode) || findBestCatalogMatch(requestedName)
-      : findBestCatalogMatch(requestedName);
-    const normalizedName = catalogMatch?.name || requestedName;
+    const catalogMatch = findProductEntryCatalogMatch(
+      requestedName,
+      isObjectPayload ? payload.barcode : ""
+    );
+    const normalizedName = requestedName;
     const normalizedBarcode = String(
       isObjectPayload
         ? payload.barcode || catalogMatch?.barcode || generateProductBarcode(normalizedName)
@@ -257,8 +280,23 @@ export function ShoppingListProvider({ children }) {
 
     const expectedCode = normalizeCode(targetProduct.barcode);
     const receivedCode = normalizeCode(scannedCode);
-    const isMatch = expectedCode === receivedCode;
     const scannedCatalogProduct = findCatalogProductByBarcode(receivedCode);
+    const targetCatalogProduct = findProductEntryCatalogMatch(targetProduct.name, expectedCode);
+    const isCatalogMatch = Boolean(
+      scannedCatalogProduct &&
+        ((targetCatalogProduct &&
+          scannedCatalogProduct.barcode === targetCatalogProduct.barcode) ||
+          matchesCatalogProductInput(scannedCatalogProduct, targetProduct.name))
+    );
+    const isMatch = expectedCode === receivedCode || isCatalogMatch;
+    const verifiedProduct = isMatch && scannedCatalogProduct
+      ? buildProductData({
+          name: targetProduct.name,
+          barcode: scannedCatalogProduct.barcode,
+          status: "verified",
+          catalogProduct: scannedCatalogProduct,
+        })
+      : null;
     const feedbackType = isMatch ? "success" : scannedCatalogProduct ? "error" : "warning";
     const message = isMatch
       ? "Codigo verificado correctamente."
@@ -281,7 +319,8 @@ export function ShoppingListProvider({ children }) {
         feedbackType,
         message,
         scannedCode: receivedCode || "sin-codigo",
-        expectedCode,
+        expectedCode: verifiedProduct?.barcode || expectedCode,
+        product: verifiedProduct,
       },
     });
   }

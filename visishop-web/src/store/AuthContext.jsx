@@ -53,7 +53,8 @@ async function postJson(path, payload) {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data?.msg || "No se pudo completar la solicitud.");
+        const detail = data?.detail ? ` Detalle: ${data.detail}` : "";
+        throw new Error(`${data?.msg || "No se pudo completar la solicitud."}${detail}`);
       }
 
       return data;

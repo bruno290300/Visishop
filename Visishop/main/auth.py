@@ -88,6 +88,7 @@ def google_login():
             credential,
             build_google_request(),
             client_id,
+            clock_skew_in_seconds=current_app.config.get('GOOGLE_TOKEN_CLOCK_SKEW_SECONDS', 300),
         )
     except ValueError as error:
         response = {'msg': 'No se pudo verificar la cuenta de Google'}

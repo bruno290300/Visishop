@@ -15,26 +15,20 @@ export function getApiBaseUrl() {
     return import.meta.env.VITE_API_BASE_URL;
   }
 
-  if (typeof window !== "undefined" && isLocalDevHost(window.location.hostname)) {
-    return window.location.origin;
-  }
-
-  return "http://192.168.18.4:5000";
+  return "";
 }
 
 export function getApiBaseUrlCandidates() {
   const envBase = import.meta.env.VITE_API_BASE_URL;
   if (envBase) return [envBase];
 
-  const candidates = ["http://192.168.18.4:5000", "http://localhost:5000", "http://127.0.0.1:5000"];
+  const candidates = [""];
 
   if (typeof window !== "undefined") {
     if (isLocalDevHost(window.location.hostname)) {
-      candidates.unshift(window.location.origin);
-    }
-    const hostBase = `http://${window.location.hostname}:5000`;
-    if (!candidates.includes(hostBase)) {
-      candidates.unshift(hostBase);
+      candidates.push("http://127.0.0.1:5000", "http://localhost:5000");
+    } else if (window.location.protocol === "http:") {
+      candidates.push(`http://${window.location.hostname}:5000`);
     }
   }
 

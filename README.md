@@ -107,6 +107,42 @@ Vite levanta el frontend en HTTPS para permitir camara y mejorar compatibilidad 
 
 - `https://localhost:5173`
 
+### 3. Exponer el backend con ngrok
+
+Para probar el frontend desde un celular o desde una red externa, se puede publicar la API Flask con ngrok.
+
+Con el backend corriendo en `http://127.0.0.1:5000`:
+
+```powershell
+ngrok http 5000
+```
+
+ngrok devuelve una URL publica HTTPS, por ejemplo:
+
+```text
+https://tu-subdominio.ngrok-free.app
+```
+
+En ese caso, crear o actualizar `visishop-web/.env` con:
+
+```env
+VITE_API_BASE_URL=https://tu-subdominio.ngrok-free.app
+VITE_GOOGLE_CLIENT_ID=tu-google-client-id.apps.googleusercontent.com
+```
+
+Luego reiniciar Vite para que tome la variable:
+
+```powershell
+cd visishop-web
+npm run dev
+```
+
+Notas para Google Sign-In:
+
+- Agregar el origen del frontend en Google Cloud Console, por ejemplo `https://localhost:5173`.
+- Si tambien se publica el frontend con otra URL HTTPS, agregar ese origen.
+- El backend debe tener configurado el mismo `GOOGLE_CLIENT_ID`.
+
 ## Variables de entorno
 
 El backend lee variables desde `.env` si existe. Las claves hoy soportadas son:
@@ -118,19 +154,23 @@ SQLALCHEMY_DATABASE_URI=sqlite:///visishop.db
 SQLALCHEMY_TRACK_MODIFICATIONS=false
 WTF_CSRF_ENABLED=false
 GOOGLE_CLIENT_ID=
+GOOGLE_TOKEN_CLOCK_SKEW_SECONDS=300
 ```
 
 Variables utiles en frontend:
 
 ```env
-VITE_API_BASE_URL=http://127.0.0.1:5000
+# Opcional. En desarrollo local se recomienda dejarlo sin definir
+# para que Vite use el proxy del mismo origen para /auth.
+# VITE_API_BASE_URL=https://tu-backend.example.com
 VITE_GOOGLE_CLIENT_ID=
 ```
 
 Notas:
 
 - Si `VITE_GOOGLE_CLIENT_ID` no existe, el frontend intenta leer el client ID desde `GET /auth/google/config`.
-- Si `VITE_API_BASE_URL` no existe, el frontend prueba varias URLs candidatas del backend, incluyendo el host actual en puerto `5000`.
+- Si `VITE_API_BASE_URL` no existe, el frontend usa rutas relativas para evitar problemas de mobile con `localhost` y contenido mixto HTTP/HTTPS.
+- `GOOGLE_TOKEN_CLOCK_SKEW_SECONDS` permite tolerar diferencias de hora entre el servidor y los tokens de Google. Por defecto usa 300 segundos.
 
 ## Endpoints principales del backend
 
@@ -203,7 +243,7 @@ El frontend ya ofrece una experiencia funcional para demo/MVP, pero hoy conviven
 
 - La autenticacion si habla con el backend real.
 - La lista visual del frontend se persiste en `localStorage`.
-- La verificacion de codigos en la UI se apoya en un catalogo local (`src/data/productCatalog.json`) y no sincroniza todavia con `/api/lista`.
+- La verificacion de codigos en la UI se apoya en un catalogo local (`src/data/productCatalog.json`), con matching por codigo de barras, nombre, marca, tipo, categoria y tamano. Todavia no sincroniza con `/api/lista`.
 - El ingreso por voz del frontend usa `SpeechRecognition` del navegador.
 - El backend tambien expone un flujo propio de voz con subida de audio a `/api/lista/voz`.
 
@@ -212,7 +252,8 @@ En otras palabras: auth ya esta conectada al servidor; la experiencia de lista/e
 ## Funcionalidades destacadas
 
 - Matching flexible entre nombre ingresado y producto verificado en backend.
-- Escaneo de codigos con camara trasera cuando el dispositivo lo permite.
+- Matching local mas estricto para evitar asociar productos por coincidencias debiles de texto.
+- Escaneo de codigos con camara trasera cuando el dispositivo lo permite, recuadro amplio y soporte para EAN, UPC, Code 128, Code 39, Code 93 e ITF.
 - Soporte de navegacion mobile gracias a `host: true` en Vite.
 - Proxy de `/auth` en desarrollo desde Vite hacia Flask.
 - Feedback hablado en espanol para ayudar a validar si el producto coincide o no.
@@ -222,13 +263,7 @@ En otras palabras: auth ya esta conectada al servidor; la experiencia de lista/e
 - El frontend no consume todavia los endpoints reales de lista y productos.
 - La configuracion HTTPS del frontend usa certificado local/autofirmado.
 - Google Sign-In requiere configurar `GOOGLE_CLIENT_ID` correctamente en backend y/o frontend.
+- Google Sign-In puede fallar si la hora del servidor esta muy desfasada; ajustar `GOOGLE_TOKEN_CLOCK_SKEW_SECONDS` solo si hace falta.
 - El reconocimiento de voz depende del soporte del navegador y de permisos de microfono.
 - La transcripcion del backend depende de `SpeechRecognition` y del servicio usado por `recognize_google`.
 
-## Proximos pasos naturales
-
-- Conectar la lista web con `/api/lista`.
-- Persistir verificacion real contra el backend desde la UI.
-- Unificar catalogo local y catalogo persistido en base de datos.
-- Agregar tests del frontend y pruebas end-to-end del flujo completo.
-- Formalizar setup de variables de entorno con archivos de ejemplo.

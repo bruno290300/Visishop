@@ -71,7 +71,7 @@ function writeCompleted(userId) {
   }
 }
 
-function VoiceOnboarding({ userId, onActiveTargetChange }) {
+function VoiceOnboarding({ userId, onActiveTargetChange, className = "" }) {
   const [isOpen, setIsOpen] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -161,7 +161,10 @@ function VoiceOnboarding({ userId, onActiveTargetChange }) {
         <button
           type="button"
           onClick={openGuide}
-          className="rounded-2xl border border-violet-200/35 bg-violet-300/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-violet-100 transition hover:bg-violet-300/20"
+          className={[
+            "rounded-2xl border border-violet-200/35 bg-violet-300/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-violet-100 transition hover:bg-violet-300/20",
+            className,
+          ].join(" ")}
         >
           Guia por voz
         </button>

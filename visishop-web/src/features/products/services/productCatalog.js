@@ -2,6 +2,8 @@ import catalog from "../../../data/productCatalog.json";
 
 const DEFAULT_RECOMMENDATION_LIMIT = 3;
 const MIN_RECOMMENDATION_SCORE = 35;
+export const MIN_PRODUCT_ENTRY_MATCH_SCORE = 100;
+const IGNORED_MATCH_TOKENS = new Set(["de", "del", "el", "la", "los", "las", "un", "una"]);
 
 export function normalizeText(value) {
   return String(value || "")
@@ -9,12 +11,18 @@ export function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim()
+    .replace(/([a-z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-z])/g, "$1 $2")
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ");
 }
 
 function toTokenSet(value) {
-  return new Set(normalizeText(value).split(" ").filter(Boolean));
+  return new Set(
+    normalizeText(value)
+      .split(" ")
+      .filter((token) => token && !IGNORED_MATCH_TOKENS.has(token))
+  );
 }
 
 function sameText(left, right) {
@@ -25,6 +33,18 @@ function sameText(left, right) {
 
 function countTokenOverlap(leftTokens, rightTokens) {
   return [...leftTokens].filter((token) => rightTokens.has(token)).length;
+}
+
+function hasMatchingSizeToken(product, inputTokens) {
+  const sizeValue = String(product?.size?.value || "");
+  const sizeUnit = normalizeText(product?.size?.unit || "");
+
+  return Boolean(
+    sizeValue &&
+      sizeUnit &&
+      inputTokens.has(sizeValue) &&
+      inputTokens.has(sizeUnit)
+  );
 }
 
 function getSizeScore(referenceProduct, candidateProduct) {
@@ -141,7 +161,11 @@ export function toRecommendationProduct(product) {
   };
 }
 
-export function findBestCatalogMatch(name) {
+export function findBestCatalogMatch(name, options = {}) {
+  const {
+    minimumScore = 1,
+    useDefaultTieBreaker = true,
+  } = options;
   const normalized = normalizeText(name);
   if (!normalized) return null;
 
@@ -180,7 +204,7 @@ export function findBestCatalogMatch(name) {
       }
     }
 
-    if (item.default) score += 5;
+    if (useDefaultTieBreaker && item.default) score += 5;
     if (isCatalogProductAvailable(item)) score += 2;
 
     if (score <= 0) continue;
@@ -205,7 +229,7 @@ export function findBestCatalogMatch(name) {
     }
   }
 
-  return !best || tie ? null : best;
+  return !best || tie || bestScore < minimumScore ? null : best;
 }
 
 export function getCatalogCount() {
@@ -223,10 +247,43 @@ export function findCatalogProductByBarcode(barcode) {
   );
 }
 
+export function matchesCatalogProductInput(product, input) {
+  if (!product) return false;
+
+  const inputTokens = toTokenSet(input);
+  if (!inputTokens.size) return false;
+
+  const productTokens = toTokenSet(
+    [
+      product.name,
+      product.brand,
+      product.type,
+      product.category,
+      product.variant,
+      product.size?.value,
+      product.size?.unit,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+  const overlap = countTokenOverlap(inputTokens, productTokens);
+  const coverage = overlap / Math.max(inputTokens.size, 1);
+
+  if (coverage < 0.75) return false;
+
+  const identityTokens = toTokenSet([product.brand, product.type, product.category].join(" "));
+  const hasIdentityToken = [...inputTokens].some((token) => identityTokens.has(token));
+
+  return hasIdentityToken || hasMatchingSizeToken(product, inputTokens);
+}
+
 export function getCatalogProductAvailability(productOrName) {
   const catalogProduct =
     typeof productOrName === "string"
-      ? findBestCatalogMatch(productOrName)
+      ? findBestCatalogMatch(productOrName, {
+          minimumScore: MIN_PRODUCT_ENTRY_MATCH_SCORE,
+          useDefaultTieBreaker: false,
+        })
       : productOrName;
 
   if (!catalogProduct) {
@@ -250,7 +307,10 @@ export function getProductRecommendations(productOrName, options = {}) {
   const limit = options.limit || DEFAULT_RECOMMENDATION_LIMIT;
   const referenceProduct =
     typeof productOrName === "string"
-      ? findBestCatalogMatch(productOrName)
+      ? findBestCatalogMatch(productOrName, {
+          minimumScore: MIN_PRODUCT_ENTRY_MATCH_SCORE,
+          useDefaultTieBreaker: false,
+        })
       : productOrName;
   const queryName =
     typeof productOrName === "string"

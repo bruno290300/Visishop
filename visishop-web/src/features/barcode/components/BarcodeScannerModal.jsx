@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Html5Qrcode,
   Html5QrcodeSupportedFormats,
@@ -11,7 +11,70 @@ const SUPPORTED_FORMATS = [
   Html5QrcodeSupportedFormats.UPC_E,
   Html5QrcodeSupportedFormats.CODE_128,
   Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93,
+  Html5QrcodeSupportedFormats.ITF,
 ];
+
+const SCAN_FPS = 15;
+const SCANNER_ASPECT_RATIO = 16 / 9;
+const SAFE_CAMERA_CONSTRAINTS = { facingMode: "environment" };
+const POST_START_VIDEO_CONSTRAINTS = {
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
+  frameRate: { ideal: 30, max: 30 },
+};
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getBarcodeQrbox(viewfinderWidth, viewfinderHeight) {
+  const safeWidth = Math.max(120, viewfinderWidth - 24);
+  const safeHeight = Math.max(120, viewfinderHeight - 24);
+  const width = clamp(
+    Math.floor(viewfinderWidth * 0.96),
+    240,
+    Math.min(720, safeWidth)
+  );
+  const height = clamp(
+    Math.floor(viewfinderHeight * 0.42),
+    130,
+    Math.min(260, safeHeight)
+  );
+
+  return { width, height };
+}
+
+function getCameraErrorMessage(err) {
+  const detail = err?.name ? ` (${err.name})` : "";
+  const message = typeof err === "string" ? err : err?.message;
+
+  if (err?.name === "NotAllowedError") {
+    return `El navegador bloqueo la camara${detail}. Revisa que el permiso este permitido para este sitio.`;
+  }
+  if (err?.name === "NotFoundError") {
+    return `No se detecto ninguna camara disponible${detail}.`;
+  }
+  if (err?.name === "NotReadableError") {
+    return `La camara esta ocupada por otra app o pestana${detail}. Cerrala y vuelve a intentar.`;
+  }
+  if (err?.name === "OverconstrainedError") {
+    return `La camara no acepta la configuracion solicitada${detail}. Intenta cerrar y abrir el escaner otra vez.`;
+  }
+
+  return (
+    (message ? `${message}${detail}` : "") ||
+    "No se pudo iniciar la camara. Revisa permisos del navegador."
+  );
+}
+
+async function applyVideoOptimizations(scanner) {
+  try {
+    await scanner.applyVideoConstraints(POST_START_VIDEO_CONSTRAINTS);
+  } catch {
+    // Si el celular no acepta 720p/30fps, seguimos con la camara ya abierta.
+  }
+}
 
 function BarcodeScannerModal({
   open,
@@ -22,15 +85,21 @@ function BarcodeScannerModal({
 }) {
   const [status, setStatus] = useState("Iniciando camara...");
   const [error, setError] = useState("");
+  const onScanSuccessRef = useRef(onScanSuccess);
   const scannerId = useMemo(
     () => `barcode-reader-${Math.random().toString(36).slice(2, 10)}`,
     []
   );
 
   useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess;
+  }, [onScanSuccess]);
+
+  useEffect(() => {
     if (!open) return;
 
     let isMounted = true;
+    let hasScanned = false;
     const scanner = new Html5Qrcode(scannerId);
     const isSecure =
       window.isSecureContext ||
@@ -54,6 +123,8 @@ function BarcodeScannerModal({
 
     async function startScanner() {
       try {
+        if (!isMounted) return;
+
         if (!isSecure) {
           setError(
             "Camara bloqueada: abre la app en HTTPS o localhost para habilitar permisos."
@@ -72,41 +143,39 @@ function BarcodeScannerModal({
         setError("");
 
         const scannerConfig = {
-          fps: 10,
-          aspectRatio: 1.777,
+          fps: SCAN_FPS,
+          qrbox: getBarcodeQrbox,
+          aspectRatio: SCANNER_ASPECT_RATIO,
           formatsToSupport: SUPPORTED_FORMATS,
         };
 
         const onSuccess = async (decodedText) => {
-          if (!isMounted) return;
+          if (!isMounted || hasScanned) return;
+          hasScanned = true;
           setStatus("Codigo detectado. Verificando...");
           await stopScanner();
-          onScanSuccess(decodedText);
+          onScanSuccessRef.current(String(decodedText || "").trim());
         };
 
         const onFailure = () => {
           // lectura continua
         };
 
-        try {
-          await scanner.start({ facingMode: "environment" }, scannerConfig, onSuccess, onFailure);
-        } catch {
-          const cameras = await Html5Qrcode.getCameras();
-          if (!cameras?.length) {
-            throw new Error("No se detectaron camaras disponibles.");
-          }
-          await scanner.start(cameras[0].id, scannerConfig, onSuccess, onFailure);
-        }
+        setStatus("Iniciando camara trasera...");
+        await scanner.start(
+          SAFE_CAMERA_CONSTRAINTS,
+          scannerConfig,
+          onSuccess,
+          onFailure
+        );
 
         if (isMounted) {
-          setStatus("Enfoca el codigo de barras dentro del recuadro.");
+          await applyVideoOptimizations(scanner);
+          setStatus("Enfoca el codigo de barras dentro del recuadro grande.");
         }
       } catch (err) {
         if (!isMounted) return;
-        setError(
-          err?.message ||
-            "No se pudo iniciar la camara. Revisa permisos del navegador."
-        );
+        setError(getCameraErrorMessage(err));
         setStatus("Camara no disponible.");
       }
     }
@@ -117,7 +186,7 @@ function BarcodeScannerModal({
       isMounted = false;
       stopScanner();
     };
-  }, [open, onScanSuccess, scannerId]);
+  }, [open, scannerId]);
 
   if (!open) return null;
 

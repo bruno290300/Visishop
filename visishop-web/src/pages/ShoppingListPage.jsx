@@ -162,15 +162,20 @@ function ShoppingListPage() {
                   Sesión: {currentUser?.name || "Usuario"}
                 </p>
               </div>
-              <div className="flex w-full flex-wrap items-stretch gap-2 sm:w-auto sm:flex-nowrap sm:items-start">
+              <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:grid-cols-[auto_auto_auto_auto] sm:items-start">
+                <div className="col-span-2 rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-left sm:order-last sm:col-span-1 sm:min-w-[96px] sm:text-right">
+                  <p className="text-[0.65rem] uppercase tracking-[0.14em] text-slate-400">Progreso</p>
+                  <p className="text-lg font-semibold text-cyan-100">{progress}%</p>
+                </div>
                 <VoiceOnboarding
                   userId={currentUser?.id || currentUser?.name || "guest"}
                   onActiveTargetChange={setOnboardingTarget}
+                  className="w-full min-h-[44px] sm:w-auto sm:min-h-0"
                 />
                 <button
                   type="button"
                   onClick={logout}
-                  className="min-w-0 flex-1 rounded-2xl border border-cyan-300/35 bg-cyan-300/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-100 transition hover:bg-cyan-300/20 sm:flex-none"
+                  className="min-h-[44px] min-w-0 rounded-2xl border border-cyan-300/35 bg-cyan-300/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-100 transition hover:bg-cyan-300/20 sm:min-h-0"
                 >
                   Log out
                 </button>
@@ -179,7 +184,7 @@ function ShoppingListPage() {
                   onClick={handleOpenClearModal}
                   disabled={!products.length}
                   className={[
-                    "min-w-0 flex-1 rounded-2xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition sm:flex-none",
+                    "col-span-2 min-h-[44px] min-w-0 rounded-2xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition sm:col-span-1 sm:min-h-0",
                     products.length
                       ? "border-red-300/35 bg-red-300/10 text-red-100 hover:bg-red-300/20"
                       : "cursor-not-allowed border-white/15 bg-white/5 text-slate-500",
@@ -187,10 +192,6 @@ function ShoppingListPage() {
                 >
                   Limpiar lista
                 </button>
-                <div className="w-full rounded-2xl border border-white/15 bg-white/5 px-3 py-2 text-left sm:w-auto sm:min-w-[96px] sm:text-right">
-                  <p className="text-[0.65rem] uppercase tracking-[0.14em] text-slate-400">Progreso</p>
-                  <p className="text-lg font-semibold text-cyan-100">{progress}%</p>
-                </div>
               </div>
             </div>
 
